@@ -1,15 +1,15 @@
 # 🎵 Synced Lyrics Downloader MOD
 
-A desktop GUI app for downloading synced (`.lrc`) lyrics for your local music library. Built with Python and tkinter. 
+A desktop GUI app for downloading synced (`.lrc`) lyrics for your local music library. Built with Python and tkinter.  
 Fork of https://github.com/type0dev/synced-lyrics-downloader
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-# Important changes:
-  Track recognition based on tags 
-  New lyrics supplier: Metal Archives
+## Important changes:
+  - Track recognition based on tags (no folder structure needed)  
+  - New lyrics supplier: Metal Archives
   
 ---
 ## Screenshot
@@ -23,17 +23,21 @@ Fork of https://github.com/type0dev/synced-lyrics-downloader
 - **Everything saved as `.lrc`** — maximum compatibility with all media players
 - **Multiple providers** — Lrclib, Musixmatch, Megalobiz, NetEase, Genius, Metal Archives
 - **Smart scanning** — scan selection for missing lyrics, download only what's missing
+- **Music files reconition** based on tags in files, your folder structure doesn't matter
+- **Supported file types:** mp3, flac, ogg, aac, m4a, opus
 ---
 
 ## Installation
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/type0dev/synced-lyrics-downloader.git
-cd synced-lyrics-downloader
+git clone https://github.com/magsho/synced-lyrics-downloader-mod.git  
+cd synced-lyrics-downloader-mod
 
 # 2. Install the dependencies
 pip install syncedlyrics
+pip install mutagen
+pip install playwright
 
 # 3. Run
 python lyrics_downloader_ultimate_mod.py
@@ -45,86 +49,16 @@ python lyrics_downloader_ultimate_mod.py "PATH"
 
 ## Quick Start
 
-1. Click **Open Music Folder** and point it at your music library
+1. Click **Select Folder** and point it at your music library
 2. Select an **artist** from the left panel
-3. Select **albums** and/or **tracks** (or use Select All)
-4. Click **Download Lyrics For Selection**
+3. Select **albums** and/or **tracks** (or use Select All Albums)
+4. Click **Download Lyrics**
 5. Watch the log panel — done!
 
-### Finding missing lyrics
-
-1. Select one or more artists
-2. Click **Scan Missing (Selection)** — shows count of tracks without lyrics
-3. Click **Download Missing (Selection)** — downloads only what's missing
-
-### Hard-to-find tracks
-
-1. Select an artist and a **single track**
-2. Click **Custom Search** (or double-click the track)
-3. Edit the search query — try removing `(feat. ...)`, `(Live)`, `(Remix)` etc.
-4. Use the checkboxes to remove duplicate artist names or strip punctuation
-5. Click **Download using this query**
-
----
-
-## Settings
-
-Open **Settings → Options** to configure:
-
-| Option | Description |
-|--------|-------------|
-| Provider priority | Drag to reorder which providers are tried first |
-| Enable/disable providers | Turn off providers that give bad results |
-| Allow plain fallback | Enable Genius for plain text lyrics |
-| Auto-upgrade plain → synced | Detect plain `.lrc` files and offer synced upgrade |
-| Language | Preferred lyrics language code (e.g. `en`) |
-| Strip CJK lines | Remove Chinese/Japanese/Korean lines from results |
-| Reject mostly non-ASCII | Filter out results in wrong language |
-
----
-
-## Library Structure
-
-This app expects the standard 3-level folder structure:
-
-```
-Music/
-  Artist/
-    Album/
-      01 Track.mp3
-      02 Track.mp3
-```
-
-This is the default output of **MusicBrainz Picard**, **beets**, **Mp3tag**, and most music library managers. If your library is organized this way you're good to go.
-
----
-
-## File Structure
-
-The app saves lyrics **next to your music files**, with the same filename:
-
-```
-Music/
-  Artist/
-    Album/
-      01 Track Name.mp3
-      01 Track Name.lrc      ← synced lyrics (timestamped)
-      02 Another Track.mp3
-      02 Another Track.lrc   ← plain lyrics (no timestamps, still .lrc)
-```
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+D` | Download lyrics for selection |
-| `Escape` | Cancel current download |
-| `F5` | Refresh library |
-| `Double-click track` | Open Custom Search |
-
----
+Things to consider:
+Artist and Track recognition is based on tags in music files, without proper tags it will not work!  
+Supported file types are: mp3, flac, ogg, aac, m4a, opus.  
+Metal Archives downloading works by custom web scrapper inside Edge browser installed in your system thus it's Windows only.  
 
 ## Providers
 
@@ -134,20 +68,8 @@ Music/
 | Musixmatch | ✅ | ❌ | Good coverage |
 | Megalobiz | ✅ | ❌ | Good for older tracks |
 | NetEase | ✅ | ❌ | Large Asian library, may give non-English results |
-| Genius | ❌ | ✅ | Plain text only, requires plain fallback enabled |
-
----
-
-## Config File
-
-Settings are saved automatically to `lyrics_gui_config.json` in the same folder as the script.
-
----
-
-## Built With
-
-- [Python](https://python.org) + [tkinter](https://docs.python.org/3/library/tkinter.html) — GUI
-- [syncedlyrics](https://github.com/moehmeni/syncedlyrics) — lyrics fetching library
+| Genius | ❌ | ✅ | Plain text only |
+| Metal Archives | ❌ | ✅ | Plain text only, has only metal lyrics often not available anywhere else |
 
 ---
 
