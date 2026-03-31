@@ -8,48 +8,17 @@ Fork of https://github.com/type0dev/synced-lyrics-downloader
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
-
-## Screenshots
+## Screenshot
 
 ![Synced Lyrics Downloader](https://raw.githubusercontent.com/magsho/synced-lyrics-downloader-mod/refs/heads/main/Screenshot.png)
 
 ---
-
 ## Features
 
 - **Synced lyrics first** — always tries `.lrc` with timestamps before falling back to plain text
 - **Everything saved as `.lrc`** — maximum compatibility with all media players
-- **Multiple providers** — Lrclib, Musixmatch, Megalobiz, NetEase, Genius (configurable priority)
+- **Multiple providers** — Lrclib, Musixmatch, Megalobiz, NetEase, Genius, Metal Archives
 - **Smart scanning** — scan selection for missing lyrics, download only what's missing
-- **Custom Search** — override the search query for hard-to-find tracks
-- **Auto-upgrade** — detects plain `.lrc` files and offers to find a synced version
-- **Track icons** — ✅ synced · 📄 plain · ⚠️ incomplete · ❌ none
-- **Artist/Album icons** — ✅ all · 🟨 some · ⬜ none (shown after scanning)
-- **Dark and Light themes**
-- **Keyboard shortcuts** — `Ctrl+D` download · `Escape` cancel · `F5` refresh
-- **Double-click a track** to open Custom Search instantly
-- **Remembers window size and position** between sessions
-- **CJK stripping** and non-ASCII rejection to avoid garbage results
-- Works great on **network drives** (NAS, mapped drives)
-
----
-
-## Requirements
-
-### Windows
-```
-Python 3.10+      →  https://python.org/downloads
-syncedlyrics      →  pip install syncedlyrics
-tkinter           →  included with standard Python install
-```
-
-### Linux
-```
-Python 3.10+      →  sudo apt install python3
-syncedlyrics      →  pip install syncedlyrics
-tkinter           →  sudo apt install python3-tk
-```
-
 ---
 
 ## Installation
@@ -59,11 +28,13 @@ tkinter           →  sudo apt install python3-tk
 git clone https://github.com/type0dev/synced-lyrics-downloader.git
 cd synced-lyrics-downloader
 
-# 2. Install the only dependency
+# 2. Install the dependencies
 pip install syncedlyrics
 
 # 3. Run
-python lyrics_downloader_ultimate.py
+python lyrics_downloader_ultimate_mod.py
+or with folder path as argument:
+python lyrics_downloader_ultimate_mod.py "PATH"
 ```
 
 ---
