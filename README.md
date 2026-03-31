@@ -29,6 +29,7 @@ Fork of https://github.com/type0dev/synced-lyrics-downloader
 
 ## Installation
 
+**Running in Python**
 ```bash
 # 1. Clone the repo
 git clone https://github.com/magsho/synced-lyrics-downloader-mod.git  
@@ -44,6 +45,9 @@ python lyrics_downloader_ultimate_mod.py
 or with folder path as argument:
 python lyrics_downloader_ultimate_mod.py "PATH"
 ```
+**What is Python? I need EXE!!**  
+
+[Here you can download](https://github.com/magsho/synced-lyrics-downloader-mod/releases/download/V1.0.0/Synced.Lyrics.Downloader.MOD.exe) compiled Windows binary 
 
 ---
 
