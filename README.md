@@ -7,6 +7,10 @@ Fork of https://github.com/type0dev/synced-lyrics-downloader
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+# Important changes:
+  Track recognition based on tags 
+  New lyrics supplier: Metal Archives
+  
 ---
 ## Screenshot
 
