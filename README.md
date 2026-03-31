@@ -1,6 +1,7 @@
 # 🎵 Synced Lyrics Downloader MOD
 
-A desktop GUI app for downloading synced (`.lrc`) lyrics for your local music library. Built with Python and tkinter — no internet browser required, no accounts, no ads.
+A desktop GUI app for downloading synced (`.lrc`) lyrics for your local music library. Built with Python and tkinter. 
+Fork of https://github.com/type0dev/synced-lyrics-downloader
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
