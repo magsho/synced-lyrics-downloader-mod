@@ -11,7 +11,7 @@ Fork of https://github.com/type0dev/synced-lyrics-downloader
 
 ## Screenshots
 
-![Synced Lyrics Downloader](https://raw.githubusercontent.com/type0dev/synced-lyrics-downloader/main/lyrics%20download%20screenshot.png)
+![Synced Lyrics Downloader](https://raw.githubusercontent.com/magsho/synced-lyrics-downloader-mod/refs/heads/main/Screenshot.png)
 
 ---
 
