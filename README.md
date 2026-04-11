@@ -50,7 +50,7 @@ python lyrics_downloader_ultimate_mod.py "PATH"
 ```
 **What is Python? I need EXE!!**  
 
-[Here you can download](https://github.com/magsho/synced-lyrics-downloader-mod/releases/download/V1.0.0/Synced.Lyrics.Downloader.MOD.exe) compiled Windows binary 
+[Here you can download](https://github.com/magsho/synced-lyrics-downloader-mod/releases/download/V1.0.1/Synced.Lyrics.Downloader.MOD.exe) compiled Windows binary 
 
 ---
 
@@ -58,9 +58,10 @@ python lyrics_downloader_ultimate_mod.py "PATH"
 
 1. Click **Select Folder** and point it at your music library
 2. Select an **artist** from the left panel
-3. Select **albums** and/or **tracks** (or use Select All Albums)
+3. Select **albums** and/or **tracks** (or use Select All Artists / Albums)
 4. Click **Download Lyrics**
 5. Watch the log panel — done!
+6. In case of problems with tags use Advanced for manual search
 
 Things to consider:
 Artist and Track recognition is based on tags in music files, without proper tags it will not work!  
