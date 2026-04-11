@@ -38,7 +38,10 @@ cd synced-lyrics-downloader-mod
 # 2. Install the dependencies
 pip install syncedlyrics
 pip install mutagen
+
+  # Libraries needed only for Metal Archives
 pip install playwright
+pip install beautifulsoup4
 
 # 3. Run
 python lyrics_downloader_ultimate_mod.py
