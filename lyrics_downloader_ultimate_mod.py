@@ -121,7 +121,7 @@ class MetalArchivesSession:
 
     def start(self):
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(channel="msedge",headless=True)
+        self._browser = self._playwright.chromium.launch(channel="msedge", headless=True)
         context = self._browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -130,9 +130,14 @@ class MetalArchivesSession:
             )
         )
         self.page = context.new_page()
-        # Warm up session to avoid bot detection on first real request
-        self.page.goto(MA_BASE)
-        self.page.wait_for_load_state("networkidle")
+        # Warm up session to avoid bot detection on first real request.
+        # Metal Archives uses long-polling connections so "networkidle" never
+        # fires — use "domcontentloaded" instead and treat timeout as non-fatal.
+        try:
+            self.page.goto(MA_BASE, timeout=20000,
+                           wait_until="domcontentloaded")
+        except Exception as e:
+            print(f"[MA] Warmup navigation warning (non-fatal): {e}")
         time.sleep(2)
 
     def stop(self):
@@ -163,7 +168,7 @@ class MetalArchivesSession:
         )
         print(f"[MA] Searching band: '{name}' -> {url}")
         self.page.goto(url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         try:
             data = json.loads(self.page.inner_text("body"))
         except Exception as e:
@@ -189,7 +194,7 @@ class MetalArchivesSession:
         url = f"{MA_BASE}/band/discography/id/{band_id}/tab/main"
         print(f"[MA] Fetching discography: {url}")
         self.page.goto(url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         soup = BeautifulSoup(self.page.content(), "html.parser")
         albums = []
         for row in soup.select("tr"):
@@ -214,7 +219,7 @@ class MetalArchivesSession:
         """Return list of (raw_title, track_id_or_None) as scraped from MA."""
         print(f"[MA] Fetching track list: {album_url}")
         self.page.goto(album_url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         soup = BeautifulSoup(self.page.content(), "html.parser")
         tracks = []
         for row in soup.select("tr.even, tr.odd"):
@@ -287,7 +292,7 @@ class MetalArchivesSession:
         url = f"{MA_BASE}/release/ajax-view-lyrics/id/{track_id}"
         print(f"[MA] Fetching lyrics for track id={track_id}: {url}")
         self.page.goto(url)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         text = self.page.inner_text("body").strip()
         if not text or "lyrics not available" in text.lower():
             print(f"[MA] Lyrics not available for id={track_id}.")
@@ -427,6 +432,8 @@ current_folder = None  # Tracks the last successfully loaded music folder
 ui_q = queue.Queue()
 stop_download_event = threading.Event()
 only_missing_var = None  # Will be initialized in the UI section
+album_index_map = []  # list of (artist, album) parallel to album_list widget rows
+track_data_list = []  # list of track dicts parallel to track_list widget rows
 
 def ui_call(fn, *args): ui_q.put((fn, args))
 
@@ -443,13 +450,21 @@ def pump_ui_queue():
 
 # ------------------ Core Logic ------------------
 
+N_SCAN = 5  # Update the status bar every N folders during scanning
+
 def scan_library(root_dir):
     """Deep scan folder and extract tags. No disk-caching as requested."""
     new_library = {}
-    ui_call(set_status, "Scanning tags...", "working")
+    folder_count = 0
+    ui_call(set_status, "Scanning tags...")
     for root_path, _, files in os.walk(root_dir):
-        for f in files:
-            if f.lower().endswith(AUDIO_EXTENSIONS):
+        audio_files = [f for f in files if f.lower().endswith(AUDIO_EXTENSIONS)]
+        if audio_files:
+            folder_count += 1
+            if folder_count % N_SCAN == 0:
+                display_path = root_path.replace('/','\\')
+                ui_call(set_status, f"Scanning [{folder_count}]: {display_path}")
+        for f in audio_files:
                 full_path = os.path.join(root_path, f)
                 title, artist, album = get_tags(full_path)
                 title = strip_parens(title)
@@ -477,6 +492,13 @@ def toggle_all_albums():
         album_list.selection_set(0, tk.END)
     on_album_select()
 
+def select_all_artists():
+    """Selects all artists and loads all their albums into the middle panel."""
+    if artist_list.size() == 0:
+        return
+    artist_list.selection_set(0, tk.END)
+    on_artist_select()
+
 def refresh_artist_list():
     artist_list.delete(0, tk.END)
     for artist in sorted(library_data.keys()):
@@ -484,32 +506,39 @@ def refresh_artist_list():
 
 
 def on_artist_select(event=None):
+    global album_index_map
     sel = artist_list.curselection()
     if not sel: return
     album_list.delete(0, tk.END)
     track_list.delete(0, tk.END)
-    artist = artist_list.get(sel[0])[2:]  # Strip icon
-    albums = sorted(library_data.get(artist, {}).keys())
-    for alb in albums:
-        album_list.insert(tk.END, "💿 " + alb)
+    album_index_map = []
+    seen = set()
+    for artist_idx in sel:
+        artist = artist_list.get(artist_idx)[2:]  # Strip icon
+        for alb in sorted(library_data.get(artist, {}).keys()):
+            key = (artist, alb)
+            if key not in seen:
+                seen.add(key)
+                album_index_map.append(key)
+                album_list.insert(tk.END, "💿 " + alb)
 
 
 def on_album_select(event=None):
-    sel_art = artist_list.curselection()
+    global track_data_list
     sel_alb = album_list.curselection()
-    if not sel_art or not sel_alb: return
+    if not sel_alb: return
 
-    current_sel = track_list.curselection()
     track_list.delete(0, tk.END)
+    track_data_list = []
 
-    artist = artist_list.get(sel_art[0])[2:]
-
-    tracks = []
     for alb_idx in sel_alb:
-        album = album_list.get(alb_idx)[2:]
-        tracks.extend(library_data[artist][album])
+        if alb_idx >= len(album_index_map):
+            continue
+        artist, album = album_index_map[alb_idx]
+        for t in library_data.get(artist, {}).get(album, []):
+            track_data_list.append(t)
 
-    for idx, t in enumerate(tracks):
+    for idx, t in enumerate(track_data_list):
         lrc_path = os.path.splitext(t["path"])[0] + ".lrc"
         icon = "❌ "
         is_synced = False
@@ -532,27 +561,280 @@ def on_album_select(event=None):
         else:
             track_list.itemconfig(idx, {'bg': '#ffffff', 'fg': '#000000'})
 
-    for i in current_sel:
-        track_list.selection_set(i)
+# ------------------ Advanced Single-Track Download Window ------------------
+
+def open_advanced_window():
+    """Open a window for manually entering Artist + Title to download lyrics for a single track."""
+
+    # --- Resolve pre-fill values from the single selected track (if any) ---
+    prefill_artist = ""
+    prefill_title  = ""
+    prefill_path   = ""
+
+    sel_tracks = track_list.curselection()
+    if len(sel_tracks) == 1:
+        t = track_data_list[sel_tracks[0]]
+        prefill_artist = t.get("artist", "")
+        prefill_title  = t.get("title",  "")
+        prefill_path   = os.path.normpath(os.path.splitext(t["path"])[0] + ".lrc")
+
+    # --- Build the window ---
+    win = tk.Toplevel(root)
+    win.title("Advanced – Manual Lyrics Download")
+    root.update_idletasks()
+    win.update_idletasks()
+
+    x = root.winfo_x() + (root.winfo_width() // 2) - 250
+    y = root.winfo_y() + (root.winfo_height() // 2) - 150
+    win.geometry(f"+{x}+{y}")
+    win.resizable(True, True)
+    win.grab_set()   # modal
+
+    pad = dict(padx=10, pady=4)
+
+    # Artist row
+    tk.Label(win, text="Artist:", anchor="w", width=10).grid(row=0, column=0, sticky="w", **pad)
+    artist_var = tk.StringVar(value=prefill_artist)
+    artist_entry = tk.Entry(win, textvariable=artist_var, width=40)
+    artist_entry.grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
+
+    # Title row
+    tk.Label(win, text="Title:", anchor="w", width=10).grid(row=1, column=0, sticky="w", **pad)
+    title_var = tk.StringVar(value=prefill_title)
+    title_entry = tk.Entry(win, textvariable=title_var, width=40)
+    title_entry.grid(row=1, column=1, columnspan=2, sticky="ew", **pad)
+
+    # Save-path row
+    tk.Label(win, text="Save as:", anchor="w", width=10).grid(row=2, column=0, sticky="w", **pad)
+    path_var = tk.StringVar(value=prefill_path)
+    path_entry = tk.Entry(win, textvariable=path_var, width=34)
+    path_entry.grid(row=2, column=1, sticky="ew", **pad)
+
+    def browse_path():
+        initial = path_var.get() or os.path.expanduser("~")
+        chosen = filedialog.asksaveasfilename(
+            parent=win,
+            initialfile=os.path.basename(initial) if initial else "lyrics.lrc",
+            initialdir=os.path.dirname(initial) if initial else os.path.expanduser("~"),
+            defaultextension=".lrc",
+            filetypes=[("LRC files", "*.lrc"), ("All files", "*.*")],
+            title="Choose where to save the .lrc file",
+        )
+        if chosen:
+            #path_var.set(chosen.replace("/", "\\"))
+            path_var.set(os.path.normpath(chosen))
+
+    tk.Button(win, text="…", command=browse_path, width=3).grid(row=2, column=2, padx=(0, 10))
+
+    # Providers row (mirrors main-window provider_vars)
+    prov_frame_adv = tk.LabelFrame(win, text="Providers", padx=5, pady=5)
+    prov_frame_adv.grid(row=3, column=0, columnspan=3, sticky="ew", padx=10, pady=4)
+    adv_provider_vars = {}
+    for p in ALL_PROVIDERS:
+        var = tk.BooleanVar(value=provider_vars[p].get())
+        adv_provider_vars[p] = var
+        cb = tk.Checkbutton(prov_frame_adv, text=p, variable=var)
+        cb.pack(side="left")
+        if p == "Metal Archives" and not MA_AVAILABLE:
+            cb.config(fg="gray")
+            var.set(False)
+
+    # Button row
+    btn_frame_adv = tk.Frame(win)
+    btn_frame_adv.grid(row=4, column=0, columnspan=3, pady=6)
+    dl_btn = tk.Button(btn_frame_adv, text="Download Lyrics", width=16)
+    dl_btn.pack(side="left", padx=8)
+    cancel_btn_adv = tk.Button(btn_frame_adv, text="Cancel", state="disabled", width=10)
+    cancel_btn_adv.pack(side="left", padx=4)
+    tk.Button(btn_frame_adv, text="Close", command=win.destroy, width=10).pack(side="left", padx=4)
+
+    win.columnconfigure(1, weight=1)
+
+    # --- Liveness flag (for buttons only — window may close while worker runs) ---
+    win_alive = [True]
+
+    def _on_close():
+        win_alive[0] = False
+        adv_stop_event.set()
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", _on_close)
+
+    # --- Thread-safe helpers ---
+    # All log messages go to the main window's Download Log via log()
+    adv_log = log
+
+    def _adv_set_buttons(downloading):
+        if not win_alive[0]:
+            return
+        dl_btn.config(state="disabled" if downloading else "normal")
+        cancel_btn_adv.config(state="normal" if downloading else "disabled")
+
+    def adv_set_buttons(downloading):
+        ui_call(_adv_set_buttons, downloading)
+
+    # --- Download worker ---
+    adv_stop_event = threading.Event()
+
+    def adv_download():
+        artist   = artist_var.get().strip()
+        title    = title_var.get().strip()
+        lrc_path = path_var.get().strip()
+
+        if not artist or not title:
+            messagebox.showwarning("Missing fields", "Please fill in both Artist and Title.", parent=win)
+            return
+        if not lrc_path:
+            messagebox.showwarning("Missing path", "Please choose a save location.", parent=win)
+            return
+
+        active = [p for p in ALL_PROVIDERS if adv_provider_vars[p].get()]
+        if not active:
+            messagebox.showwarning("Providers", "Please select at least one provider.", parent=win)
+            return
+
+        if "Metal Archives" in active and not MA_AVAILABLE:
+            active = [p for p in active if p != "Metal Archives"]
+            if not active:
+                messagebox.showwarning("Providers", "No usable providers selected.", parent=win)
+                return
+
+        adv_stop_event.clear()
+        adv_set_buttons(True)
+        adv_log(f"--- Downloading: {artist} – {title}")
+
+        def worker():
+            tmp_path     = lrc_path + ".tmp"
+            best_lrc_path = None
+            success      = False
+            ma_session   = None
+
+            if "Metal Archives" in active and MA_AVAILABLE:
+                adv_log("--- Launching Metal Archives browser session...")
+                try:
+                    ma_session = MetalArchivesSession()
+                    ma_session.start()
+                    adv_log("--- Metal Archives browser ready.")
+                except Exception as e:
+                    adv_log(f"  ✘ Metal Archives: could not start browser: {e}")
+                    ma_session = None
+
+            try:
+                for p in active:
+                    if adv_stop_event.is_set():
+                        break
+
+                    adv_log(f"  → Trying {p}…")
+
+                    # ---- Metal Archives ----
+                    if p == "Metal Archives":
+                        if ma_session is None:
+                            adv_log(f"  ✘ Metal Archives: browser not available, skipping.")
+                            continue
+                        try:
+                            lyrics_text = ma_session.fetch_lyrics(
+                                artist=artist, album="", title=title)
+                        except Exception as e:
+                            adv_log(f"  ✘ Metal Archives error: {e}")
+                            continue
+                        if not lyrics_text:
+                            adv_log(f"  ✘ Metal Archives: not found.")
+                            continue
+                        plain_lrc = lyrics_to_plain_lrc(lyrics_text)
+                        try:
+                            with open(tmp_path, "w", encoding="utf-8") as f:
+                                f.write(plain_lrc)
+                        except Exception as e:
+                            adv_log(f"  ✘ Metal Archives: could not write file ({e})")
+                            continue
+                        if best_lrc_path is None:
+                            os.replace(tmp_path, lrc_path)
+                            best_lrc_path = lrc_path
+                            success = True
+                            adv_log(f"  ~ Metal Archives: saved unsynced lyrics, continuing search for synced...")
+                        else:
+                            os.remove(tmp_path)
+                        continue
+
+                    # ---- Standard syncedlyrics providers ----
+                    query = f"{artist} - {title}"
+                    cmd   = ["syncedlyrics", query, "-p", p.lower(), "-o", tmp_path]
+                    try:
+                        subprocess.run(cmd, capture_output=True,
+                                       shell=sys.platform == "win32", timeout=30)
+                    except subprocess.TimeoutExpired:
+                        adv_log(f"  ✘ {p}: timed out.")
+                        continue
+
+                    if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 10:
+                        adv_log(f"  ✘ {p}: no result.")
+                        continue
+
+                    if is_lrc_synced(tmp_path):
+                        os.replace(tmp_path, lrc_path)
+                        best_lrc_path = lrc_path
+                        success = True
+                        adv_log(f"  ✔ {p}: synced lyrics found!")
+                        break
+                    else:
+                        adv_log(f"  ~ {p}: unsynced lyrics, continuing search for synced...")
+                        if best_lrc_path is None:
+                            os.replace(tmp_path, lrc_path)
+                            best_lrc_path = lrc_path
+                            success = True
+                        else:
+                            os.remove(tmp_path)
+
+            finally:
+                if ma_session:
+                    ma_session.stop()
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+
+            # --- Final status ---
+            if adv_stop_event.is_set():
+                adv_log("--- Cancelled by user.")
+            elif success:
+                synced = is_lrc_synced(lrc_path) if best_lrc_path else False
+                label  = "synced" if synced else "unsynced"
+                adv_log(f"--- ✔ Done. Saved {label} lyrics → {lrc_path}")
+            else:
+                adv_log("--- ✖ No lyrics found with the selected providers.")
+
+            adv_set_buttons(False)
+            ui_call(on_album_select)   # refresh main window track icons
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def adv_cancel():
+        adv_stop_event.set()
+        adv_log("!!! Cancellation requested…")
+
+    dl_btn.config(command=adv_download)
+    cancel_btn_adv.config(command=adv_cancel)
+    artist_entry.focus_set()
+
 
 # ------------------ Download Logic ------------------
 
 def start_download():
-    sel_art = artist_list.curselection()
-    if not sel_art: return
-
-    artist_name = artist_list.get(sel_art[0])[2:]
     targets = []
 
     sel_tracks = track_list.curselection()
     if sel_tracks:
-        album_name = album_list.get(album_list.curselection()[0])[2:]
-        all_tracks = library_data[artist_name][album_name]
-        for i in sel_tracks: targets.append(all_tracks[i])
+        # Specific tracks chosen — look them up directly in track_data_list
+        for i in sel_tracks:
+            if i < len(track_data_list):
+                targets.append(track_data_list[i])
     else:
+        # No track selection — download all tracks from every selected album
         for i in album_list.curselection():
-            alb_name = album_list.get(i)[2:]
-            targets.extend(library_data[artist_name][alb_name])
+            if i < len(album_index_map):
+                artist, album = album_index_map[i]
+                targets.extend(library_data.get(artist, {}).get(album, []))
 
     if not targets:
         messagebox.showinfo("Select", "Please select at least one album or track.")
@@ -567,10 +849,11 @@ def start_download():
     if "Metal Archives" in active_providers and not MA_AVAILABLE:
         messagebox.showwarning(
             "Metal Archives",
-            "Metal Archives requires 'playwright' and 'beautifulsoup4'.\n"
+            "Metal Archives requires:\n"
+            "Edge browser installed"
+            "Python libraries 'playwright' and 'beautifulsoup4'.\n"
             "Install them with:\n\n"
             "  pip install playwright beautifulsoup4\n"
-            "  playwright install chromium\n\n"
             "Metal Archives will be skipped for this session."
         )
         active_providers = [p for p in active_providers if p != "Metal Archives"]
@@ -640,6 +923,14 @@ def start_download():
                     if is_upgrade and p in PLAIN_ONLY_PROVIDERS:
                         log(f"  – SKIP: {p} never provides synced lyrics (upgrade mode).")
                         continue
+
+                    # When re-downloading everything (only_missing unchecked),
+                    # skip plain-only providers for tracks that already have a
+                    # synced .lrc — they can't improve on what's already there.
+                    if not is_upgrade and p in PLAIN_ONLY_PROVIDERS:
+                        if os.path.exists(lrc_path) and is_lrc_synced(lrc_path):
+                            log(f"  – SKIP: {p} is plain-only and track already has synced lyrics.")
+                            continue
 
                     ui_call(set_status, f"Downloading {track['title']} ({p})...")
 
@@ -770,11 +1061,9 @@ def open_folder():
     """Opens the folder of the currently selected album, falling back to the root music folder."""
     folder = None
 
-    sel_art = artist_list.curselection()
     sel_alb = album_list.curselection()
-    if sel_art and sel_alb:
-        artist = artist_list.get(sel_art[0])[2:]
-        album = album_list.get(sel_alb[0])[2:]
+    if sel_alb and sel_alb[0] < len(album_index_map):
+        artist, album = album_index_map[sel_alb[0]]
         tracks = library_data.get(artist, {}).get(album, [])
         if tracks:
             folder = os.path.dirname(tracks[0]["path"])
@@ -791,6 +1080,39 @@ def open_folder():
         subprocess.run(["open", folder])
     else:
         subprocess.run(["xdg-open", folder])
+
+
+def open_selected_track_lyrics(event=None):
+    """Open the double-clicked track's .lrc file in the default text editor."""
+    if not track_data_list:
+        return
+
+    if event is not None:
+        track_idx = track_list.nearest(event.y)
+        if track_idx < 0 or track_idx >= len(track_data_list):
+            return
+        track_list.selection_clear(0, tk.END)
+        track_list.selection_set(track_idx)
+        track_list.activate(track_idx)
+    else:
+        sel_tracks = track_list.curselection()
+        if not sel_tracks:
+            return
+        track_idx = sel_tracks[0]
+
+    track = track_data_list[track_idx]
+    lrc_path = os.path.normpath(os.path.splitext(track["path"])[0] + ".lrc")
+
+    if not os.path.exists(lrc_path):
+        messagebox.showinfo("Lyrics Not Found", f"No lyrics file exists yet for:\n\n{track['title']}")
+        return
+
+    if sys.platform == "win32":
+        os.startfile(lrc_path)
+    elif sys.platform == "darwin":
+        subprocess.run(["open", lrc_path])
+    else:
+        subprocess.run(["xdg-open", lrc_path])
 
 
 
@@ -816,14 +1138,17 @@ root.geometry("1000x800")
 # Top Controls
 top_frame = tk.Frame(root, padx=10, pady=5)
 top_frame.pack(fill="x")
+artist_ctrl_frame = tk.Frame(root, padx=10, pady=5)
+artist_ctrl_frame.pack(fill='x')
 
 tk.Button(top_frame, text="Select Folder", command=choose_folder).pack(side="left", padx=(10, 0))
-tk.Button(top_frame, text="Open Folder", command=open_folder).pack(side="left", padx=(20, 0))
-tk.Button(top_frame, text="Select All Albums", command=toggle_all_albums).pack(side="left", padx=(70, 0))
+tk.Button(top_frame, text="Browse Folder", command=open_folder).pack(side="left", padx=(20, 0))
+tk.Button(artist_ctrl_frame, text="Select All Artists", command=select_all_artists).pack(side="left", padx=(10, 0))
+tk.Button(artist_ctrl_frame, text="Select All Albums", command=toggle_all_albums).pack(side="left", padx=(160, 0))
 
 # Provider selection checkboxes
-prov_frame = tk.LabelFrame(top_frame, text="Providers", padx=5, pady=5)
-prov_frame.pack(side="left", padx=(60, 10))
+prov_frame = tk.LabelFrame(top_frame, padx=5, pady=0)
+prov_frame.pack(side="left", padx=(100, 10))
 provider_vars = {}
 for p in ALL_PROVIDERS:
     var = tk.BooleanVar(value=True)
@@ -841,18 +1166,34 @@ panes = tk.PanedWindow(root, orient="horizontal", sashwidth=4)
 panes.pack(fill="both", expand=True, padx=10)
 
 # Artist Panel
-artist_list = tk.Listbox(panes, exportselection=0)
+artist_frame = tk.Frame(panes)
+artist_list = tk.Listbox(artist_frame, exportselection=0, selectmode="extended")
+artist_scroll = tk.Scrollbar(artist_frame, orient="vertical", command=artist_list.yview)
+artist_list.config(yscrollcommand=artist_scroll.set)
+artist_scroll.pack(side="right", fill="y")
+artist_list.pack(side="left", fill="both", expand=True)
 artist_list.bind("<<ListboxSelect>>", on_artist_select)
-panes.add(artist_list, width=250)
+panes.add(artist_frame, width=250)
 
 # Album Panel
-album_list = tk.Listbox(panes, exportselection=0)
+album_frame = tk.Frame(panes)
+album_list = tk.Listbox(album_frame, exportselection=0)
+album_scroll = tk.Scrollbar(album_frame, orient="vertical", command=album_list.yview)
+album_list.config(yscrollcommand=album_scroll.set)
+album_scroll.pack(side="right", fill="y")
+album_list.pack(side="left", fill="both", expand=True)
 album_list.bind("<<ListboxSelect>>", on_album_select)
-panes.add(album_list, width=330)
+panes.add(album_frame, width=330)
 
 # Track Panel
-track_list = tk.Listbox(panes, exportselection=0, selectmode="extended")
-panes.add(track_list)
+track_frame = tk.Frame(panes)
+track_list = tk.Listbox(track_frame, exportselection=0, selectmode="extended")
+track_scroll = tk.Scrollbar(track_frame, orient="vertical", command=track_list.yview)
+track_list.config(yscrollcommand=track_scroll.set)
+track_scroll.pack(side="right", fill="y")
+track_list.pack(side="left", fill="both", expand=True)
+track_list.bind("<Double-Button-1>", open_selected_track_lyrics)
+panes.add(track_frame)
 
 # Action Row
 btn_row = tk.Frame(root, pady=5)
@@ -861,6 +1202,7 @@ tk.Button(btn_row, text="Download Lyrics", command=start_download).pack(side="le
 tk.Button(btn_row, text="Cancel", command=cancel_download).pack(side="left")
 only_missing_var = tk.BooleanVar(value=True)
 tk.Checkbutton(btn_row, text="Only Download Missing", variable=only_missing_var).pack(side="left", padx=20)
+tk.Button(btn_row, text="Advanced", command=open_advanced_window).pack(side="left", padx=(0, 10))
 
 # Right Side: The Legend
 legend_subgroup = tk.Frame(btn_row)
@@ -879,10 +1221,8 @@ def add_legend_item(parent, icon, text, bg_color=None):
         pady=2,
         fg="black"
     )
-
     if bg_color:
         lbl.configure(bg=bg_color)
-
     lbl.pack(side="left")
 
 add_legend_item(legend_subgroup, "✅", "Synced", "#9dffb0")
