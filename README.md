@@ -50,7 +50,7 @@ python lyrics_downloader_ultimate_mod.py "PATH"
 ```
 **What is Python? I need EXE!!**  
 
-[Here you can download](https://github.com/magsho/synced-lyrics-downloader-mod/releases/download/V1.0.1/Synced.Lyrics.Downloader.MOD.exe) compiled Windows binary 
+[Here you can download](https://github.com/magsho/synced-lyrics-downloader-mod/releases/download/v1.0.1/Synced.Lyrics.Downloader.MOD.exe) compiled Windows binary 
 
 ---
 
