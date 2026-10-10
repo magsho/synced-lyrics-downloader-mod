@@ -6,6 +6,8 @@ import time
 import difflib
 import threading
 import subprocess
+import tempfile
+import hashlib
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -704,7 +706,10 @@ def open_advanced_window():
         adv_log(f"--- Downloading: {artist} – {title}")
 
         def worker():
-            tmp_path     = lrc_path + ".tmp"
+            safe_tmp_path = os.path.join(
+                tempfile.gettempdir(),
+                f"syncedlyrics_{hashlib.md5(lrc_path.encode('utf-8')).hexdigest()[:16]}.lrc.tmp"
+            )
             best_lrc_path = None
             success      = False
             ma_session   = None
@@ -742,23 +747,23 @@ def open_advanced_window():
                             continue
                         plain_lrc = lyrics_to_plain_lrc(lyrics_text)
                         try:
-                            with open(tmp_path, "w", encoding="utf-8") as f:
+                            with open(safe_tmp_path, "w", encoding="utf-8") as f:
                                 f.write(plain_lrc)
                         except Exception as e:
                             adv_log(f"  ✘ Metal Archives: could not write file ({e})")
                             continue
                         if best_lrc_path is None:
-                            os.replace(tmp_path, lrc_path)
+                            os.replace(safe_tmp_path, lrc_path)
                             best_lrc_path = lrc_path
                             success = True
                             adv_log(f"  ~ Metal Archives: saved unsynced lyrics, continuing search for synced...")
                         else:
-                            os.remove(tmp_path)
+                            os.remove(safe_tmp_path)
                         continue
 
                     # ---- Standard syncedlyrics providers ----
                     query = f"{artist} - {title}"
-                    cmd   = ["syncedlyrics", query, "-p", p.lower(), "-o", tmp_path]
+                    cmd   = ["syncedlyrics", query, "-p", p.lower(), "-o", safe_tmp_path]
                     try:
                         subprocess.run(cmd, capture_output=True,
                                        shell=sys.platform == "win32", timeout=30)
@@ -766,12 +771,12 @@ def open_advanced_window():
                         adv_log(f"  ✘ {p}: timed out.")
                         continue
 
-                    if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 10:
+                    if not os.path.exists(safe_tmp_path) or os.path.getsize(safe_tmp_path) < 10:
                         adv_log(f"  ✘ {p}: no result.")
                         continue
 
-                    if is_lrc_synced(tmp_path):
-                        os.replace(tmp_path, lrc_path)
+                    if is_lrc_synced(safe_tmp_path):
+                        os.replace(safe_tmp_path, lrc_path)
                         best_lrc_path = lrc_path
                         success = True
                         adv_log(f"  ✔ {p}: synced lyrics found!")
@@ -779,18 +784,18 @@ def open_advanced_window():
                     else:
                         adv_log(f"  ~ {p}: unsynced lyrics, continuing search for synced...")
                         if best_lrc_path is None:
-                            os.replace(tmp_path, lrc_path)
+                            os.replace(safe_tmp_path, lrc_path)
                             best_lrc_path = lrc_path
                             success = True
                         else:
-                            os.remove(tmp_path)
+                            os.remove(safe_tmp_path)
 
             finally:
                 if ma_session:
                     ma_session.stop()
-                if os.path.exists(tmp_path):
+                if os.path.exists(safe_tmp_path):
                     try:
-                        os.remove(tmp_path)
+                        os.remove(safe_tmp_path)
                     except Exception:
                         pass
 
@@ -910,7 +915,10 @@ def start_download():
                 success = False
 
                 lrc_path = os.path.splitext(track['path'])[0] + ".lrc"
-                tmp_path = lrc_path + ".tmp"
+                safe_tmp_path = os.path.join(
+                    tempfile.gettempdir(),
+                    f"syncedlyrics_{hashlib.md5(lrc_path.encode('utf-8')).hexdigest()[:16]}.lrc.tmp"
+                )
                 best_lrc_path = None
 
                 for p in active_providers:
@@ -955,7 +963,7 @@ def start_download():
                         # MA only provides plain (unsynced) lyrics
                         plain_lrc = lyrics_to_plain_lrc(lyrics_text)
                         try:
-                            with open(tmp_path, "w", encoding="utf-8") as f:
+                            with open(safe_tmp_path, "w", encoding="utf-8") as f:
                                 f.write(plain_lrc)
                         except Exception as e:
                             log(f"  ✘ FAILED: Metal Archives — could not write file ({e})")
@@ -965,21 +973,21 @@ def start_download():
                         log(f"  ~ PLAIN: Metal Archives returned unsynced lyrics, trying next provider...")
                         if is_upgrade:
                             # Upgrading: don't overwrite existing unsynced with another unsynced
-                            os.remove(tmp_path)
+                            os.remove(safe_tmp_path)
                         elif best_lrc_path is None:
-                            os.replace(tmp_path, lrc_path)
+                            os.replace(safe_tmp_path, lrc_path)
                             best_lrc_path = lrc_path
                             success = True
                             ui_call(on_album_select)
                         else:
-                            os.remove(tmp_path)
+                            os.remove(safe_tmp_path)
 
                         # Keep searching for a synced version from other providers
                         continue
 
                     # ---- Standard syncedlyrics providers ----
                     query = f"{track['artist']} - {track['title']}"
-                    cmd = ["syncedlyrics", query, "-p", p.lower(), "-o", tmp_path]
+                    cmd = ["syncedlyrics", query, "-p", p.lower(), "-o", safe_tmp_path]
                     try:
                         subprocess.run(
                             cmd,
@@ -991,13 +999,13 @@ def start_download():
                         log(f"  ✘ TIMEOUT: {p} took too long, skipping.")
                         continue
 
-                    if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 10:
+                    if not os.path.exists(safe_tmp_path) or os.path.getsize(safe_tmp_path) < 10:
                         log(f"  ✘ FAILED: {p} — no file returned.")
                         continue
 
-                    if is_lrc_synced(tmp_path):
+                    if is_lrc_synced(safe_tmp_path):
                         log(f"  ✔ SYNCED: Found synced lyrics on {p}")
-                        os.replace(tmp_path, lrc_path)
+                        os.replace(safe_tmp_path, lrc_path)
                         best_lrc_path = lrc_path
                         success = True
                         ui_call(on_album_select)
@@ -1005,19 +1013,19 @@ def start_download():
                     else:
                         log(f"  ~ PLAIN: {p} returned unsynced lyrics, trying next provider...")
                         if is_upgrade:
-                            os.remove(tmp_path)
+                            os.remove(safe_tmp_path)
                         elif best_lrc_path is None:
-                            os.replace(tmp_path, lrc_path)
+                            os.replace(safe_tmp_path, lrc_path)
                             best_lrc_path = lrc_path
                             success = True
                             ui_call(on_album_select)
                         else:
-                            os.remove(tmp_path)
+                            os.remove(safe_tmp_path)
 
                 # Clean up temp file if something went wrong mid-loop
-                if os.path.exists(tmp_path):
+                if os.path.exists(safe_tmp_path):
                     try:
-                        os.remove(tmp_path)
+                        os.remove(safe_tmp_path)
                     except Exception:
                         pass
 
